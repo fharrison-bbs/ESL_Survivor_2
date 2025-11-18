@@ -388,13 +388,13 @@
             ],
             sentencePairs: [
                 { s1: 'I studied hard', s2: 'I passed the test', conjunction: 'so' },
-                { s1: 'She was tired', s2: 'she went to bed early', conjunction: 'so' },
-                { s1: 'I wanted to go out', s2: 'it was raining', conjunction: 'but' },
-                { s1: 'He likes pizza', s2: 'his sister prefers pasta', conjunction: 'but' },
-                { s1: 'They went home', s2: 'they were tired', conjunction: 'because' },
-                { s1: 'We stayed inside', s2: 'it was cold', conjunction: 'because' },
-                { s1: 'I was reading a book', s2: 'my brother was playing games', conjunction: 'while' },
-                { s1: 'She was cooking dinner', s2: 'he was watching TV', conjunction: 'while' }
+                { s1: 'She was tired', s2: 'She went to bed early', conjunction: 'so' },
+                { s1: 'I wanted to go out', s2: 'It was raining', conjunction: 'but' },
+                { s1: 'He likes pizza', s2: 'His sister prefers pasta', conjunction: 'but' },
+                { s1: 'They went home', s2: 'They were tired', conjunction: 'because' },
+                { s1: 'We stayed inside', s2: 'It was cold', conjunction: 'because' },
+                { s1: 'I was reading a book', s2: 'My brother was playing games', conjunction: 'while' },
+                { s1: 'She was cooking dinner', s2: 'He was watching TV', conjunction: 'while' }
             ],
             modalVerbs: [
                 { modal: 'can', meaning: 'ability', example: 'swim' },
@@ -594,7 +594,7 @@
             // Passive Voice Fill-in-the-blank
             createPassiveVoiceFill() {
                 const passive = this.getRandom(this.passiveObjects);
-                const q = `${passive.object} [___] ${passive.active.toLowerCase().split(' ')[0]}.`;
+                const q = `${passive.object.charAt(0).toUpperCase() + passive.object.slice(1)} [___] ${passive.active.split(' ')[0]}.`;
                 const correctAnswer = passive.passive;
 
                 const distractors = ['is written by', 'wrote by', 'writing by'];
