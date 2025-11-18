@@ -124,7 +124,7 @@
             levelUpModal, upgradeOptionsContainer,
             gameOverModal, finalScore, finalTime, restartButton,
             touchControlsContainer, joystickArea, joystickNub, shootArea,
-            ammoText, bombText, hudQuestionButton, questionModal, questionText, answerButtons,
+            ammoText, bombText, biomeText, hudQuestionButton, questionModal, questionText, answerButtons,
             finalQuestionsCorrect, finalQuestionsIncorrect,
             touchQuestionButton, touchDashButton, touchDashCooldown, touchBombButton; // <-- Added bomb button
 
@@ -150,7 +150,10 @@
                         <div>Bombs: <span id="bomb-text">3</span></div>
                         <div>Score: <span id="score-text">0</span></div>
                     </div>
-                    <div>Level: <span id="level-text">1</span></div>
+                    <div>
+                        <div>Level: <span id="level-text">1</span></div>
+                        <div>Biome: <span id="biome-text" style="font-weight: bold;">Normal World</span></div>
+                    </div>
                     <div>Time: <span id="time-text">0s</span></div>
                 </div>
                 <div id="xp-hud" class="absolute bottom-0 left-0 right-0 p-3 bg-black/30 hidden">
@@ -193,6 +196,7 @@
             bombText = getEl('bomb-text');
             scoreText = getEl('score-text');
             levelText = getEl('level-text');
+            biomeText = getEl('biome-text');
             timeText = getEl('time-text');
             xp_hud = getEl('xp-hud');
             xpBarFill = getEl('xp-bar-fill');
@@ -239,6 +243,37 @@
         let activeTouches = {}; // <-- Initialized this
         let world = { width: 1600, height: 1200 };
         let camera = { x: 0, y: 0 };
+
+        // --- Biome System ---
+        let currentBiome = 'normal';
+        let lavaPits = []; // For heat biome
+        const biomes = {
+            normal: {
+                name: 'Normal World',
+                backgroundColor: '#1a1a2a',
+                gridColor: '#333',
+                groundColor: '#2a2a3a'
+            },
+            ice: {
+                name: 'Ice World',
+                backgroundColor: '#0a1a2a',
+                gridColor: '#336699',
+                groundColor: '#1a3a5a',
+                friction: 0.92, // Slippery! (lower = more slippery)
+                iceColor: '#4db8ff'
+            },
+            heat: {
+                name: 'Heat World',
+                backgroundColor: '#2a1a0a',
+                gridColor: '#663333',
+                groundColor: '#4a2a1a',
+                lavaColor: '#ff4400',
+                lavaDamage: 2, // Damage per frame in lava
+                maxLavaPits: 8
+            }
+        };
+        let biomeOrder = ['normal', 'ice', 'heat', 'normal']; // Cycle through biomes
+        let biomeIndex = 0;
 
         const playerStats = {
             x: world.width / 2, y: world.height / 2, size: 20, speed: 250, health: 100, maxHealth: 100, ammo: 50, // <-- Faster speed
@@ -605,11 +640,12 @@
 
         // --- Game Initialization ---
         function init() {
-            enemies = []; projectiles = []; xpOrbs = []; powerUpDrops = []; particles = []; enemyProjectiles = []; orbitalWeapons = []; stunProjectiles = []; // <-- Clear all arrays
+            enemies = []; projectiles = []; xpOrbs = []; powerUpDrops = []; particles = []; enemyProjectiles = []; orbitalWeapons = []; stunProjectiles = []; lavaPits = []; // <-- Clear all arrays including lava pits
             score = 0; gameTime = 0; spawnTimer = 0; gamePaused = false, gameOver = false;
             correctAnswers = 0; incorrectAnswers = 0;
             bossSpawnedLevel3 = false; bossSpawnedLevel5 = false; bossSpawnedLevel10 = false; // Reset boss tracking
             chargeStartTime = 0; isCharging = false; killStreak = 0; // Reset new states
+            currentBiome = 'normal'; biomeIndex = 0; // Reset biome to normal
             player = JSON.parse(JSON.stringify(playerStats));
             // Reset dash state
             player.isDashing = false;
@@ -688,7 +724,12 @@
                      targetVY = (targetVY / length) * player.speed;
                 }
             }
-             const lerpFactor = Math.min(1, 15 * delta);
+             // Ice biome makes movement slippery
+             let lerpFactor = Math.min(1, 15 * delta);
+             if (currentBiome === 'ice') {
+                 // Reduce lerp factor for slippery ice
+                 lerpFactor = Math.min(1, 5 * delta); // Much slower response = slippery
+             }
              player.vx = (player.vx ?? 0) * (1 - lerpFactor) + targetVX * lerpFactor;
              player.vy = (player.vy ?? 0) * (1 - lerpFactor) + targetVY * lerpFactor;
         }
@@ -709,6 +750,7 @@
             checkBossSpawns(); // <-- NEW: Check for boss spawns
             checkRageMode(); // <-- NEW: Check rage mode
             checkKillStreak(); // <-- NEW: Check kill streak
+            updateLavaPits(delta); // <-- NEW: Update lava pits for heat biome
             updateHUD();
             updateCooldowns(); // Update dash cooldown UI
         }
@@ -1086,6 +1128,11 @@
                 }
             }
 
+            // Boss defeated - change biome!
+            if (enemy.isBoss) {
+                changeBiome();
+            }
+
             enemies.splice(index, 1);
         }
         function spawnEnemies(delta) {
@@ -1161,6 +1208,75 @@
 
             enemies.push(boss);
         }
+
+        // --- Biome Functions ---
+        function changeBiome() {
+            biomeIndex = (biomeIndex + 1) % biomeOrder.length;
+            currentBiome = biomeOrder[biomeIndex];
+
+            // Clear lava pits when changing biome
+            lavaPits = [];
+
+            // Spawn lava pits if heat biome
+            if (currentBiome === 'heat') {
+                spawnLavaPits();
+            }
+
+            // Visual feedback
+            const biomeInfo = biomes[currentBiome];
+            spawnParticleEmitter(player.x, player.y, biomeInfo.gridColor, 50);
+
+            // Show notification (you could add a message here)
+            console.log(`Biome changed to: ${biomeInfo.name}`);
+        }
+
+        function spawnLavaPits() {
+            const biomeInfo = biomes.heat;
+            const numPits = biomeInfo.maxLavaPits || 8;
+
+            for (let i = 0; i < numPits; i++) {
+                const x = Math.random() * world.width;
+                const y = Math.random() * world.height;
+                const size = 80 + Math.random() * 100; // Random size 80-180
+
+                lavaPits.push({
+                    x: x,
+                    y: y,
+                    size: size,
+                    damage: biomeInfo.lavaDamage,
+                    lastDamageTime: 0
+                });
+            }
+        }
+
+        function updateLavaPits(delta) {
+            if (currentBiome !== 'heat' || !player) return;
+
+            const now = Date.now();
+            for (let pit of lavaPits) {
+                const dx = player.x - pit.x;
+                const dy = player.y - pit.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+
+                // Check if player is in lava pit
+                if (dist < pit.size / 2 + player.size) {
+                    // Damage player every 500ms while in lava
+                    if (now - pit.lastDamageTime > 500) {
+                        if (!player.isDashing) { // No damage while dashing
+                            player.health -= pit.damage;
+                            spawnParticleEmitter(player.x, player.y, '#ff4400', 5);
+
+                            if (player.health <= 0) {
+                                player.health = 0;
+                                endGame();
+                            }
+                        }
+                        pit.lastDamageTime = now;
+                    }
+                }
+            }
+        }
+
         function shoot(angle) {
             if (!player) return;
             if (player.ammo <= 0) { 
@@ -1489,7 +1605,9 @@
         // --- Drawing ---
         function draw() {
             if (!ctx) return;
-            ctx.fillStyle = '#1a1a2a'; 
+            // Use biome background color
+            const biomeInfo = biomes[currentBiome];
+            ctx.fillStyle = biomeInfo.backgroundColor;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             if (!player) return;
 
@@ -1523,7 +1641,9 @@
             ctx.restore();
         }
         function drawWorld() {
-            ctx.strokeStyle = '#333';
+            // Use biome grid color
+            const biomeInfo = biomes[currentBiome];
+            ctx.strokeStyle = biomeInfo.gridColor;
             ctx.lineWidth = 1;
             const gridSize = 100;
             const startX = Math.floor(camera.x / gridSize) * gridSize;
@@ -1539,6 +1659,47 @@
                 ctx.moveTo(camera.x, y);
                 ctx.lineTo(camera.x + canvas.width, y);
                 ctx.stroke();
+            }
+
+            // Draw biome-specific effects
+            if (currentBiome === 'ice') {
+                // Draw ice patches/shimmer
+                ctx.fillStyle = biomeInfo.iceColor;
+                ctx.globalAlpha = 0.1;
+                for (let x = startX; x < camera.x + canvas.width + gridSize; x += gridSize) {
+                    for (let y = startY; y < camera.y + canvas.height + gridSize; y += gridSize) {
+                        if (Math.random() > 0.7) {
+                            ctx.fillRect(x, y, gridSize * 0.8, gridSize * 0.8);
+                        }
+                    }
+                }
+                ctx.globalAlpha = 1.0;
+            }
+
+            // Draw lava pits
+            drawLavaPits();
+        }
+
+        function drawLavaPits() {
+            if (currentBiome !== 'heat') return;
+
+            const biomeInfo = biomes.heat;
+            for (let pit of lavaPits) {
+                // Draw glowing lava pit
+                ctx.fillStyle = biomeInfo.lavaColor;
+                ctx.globalAlpha = 0.7;
+                ctx.beginPath();
+                ctx.arc(pit.x, pit.y, pit.size / 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Outer glow
+                ctx.globalAlpha = 0.3;
+                ctx.fillStyle = '#ffaa00';
+                ctx.beginPath();
+                ctx.arc(pit.x, pit.y, pit.size / 2 + 10, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.globalAlpha = 1.0;
             }
         }
         function drawPlayerCharacter() {
@@ -1747,6 +1908,7 @@
             if(bombText) bombText.textContent = player?.bombs ?? 0;
             if(scoreText) scoreText.textContent = score;
             if(levelText) levelText.textContent = player?.level ?? 1;
+            if(biomeText) biomeText.textContent = biomes[currentBiome].name;
             if(timeText) timeText.textContent = Math.floor(gameTime) + 's';
             if(xpBarFill && player) xpBarFill.style.width = `${player ? (player.xp / player.xpToNextLevel) * 100 : 0}%`;
         }
