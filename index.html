@@ -224,9 +224,13 @@
         let player, enemies = [], projectiles = [], xpOrbs = [], powerUpDrops = [];
         let particles = []; // <-- NEW: For particle effects
         let enemyProjectiles = []; // <-- NEW: For enemy projectiles
+        let orbitalWeapons = []; // <-- NEW: For orbital weapons like axes
+        let stunProjectiles = []; // <-- NEW: For stun projectiles
         let score = 0, gameTime = 0, spawnTimer = 0, gamePaused = false, gameOver = false, correctAnswers = 0, incorrectAnswers = 0;
-        let bossSpawnedLevel5 = false, bossSpawnedLevel10 = false; // Track boss spawns
+        let bossSpawnedLevel3 = false, bossSpawnedLevel5 = false, bossSpawnedLevel10 = false; // Track boss spawns
         let lastShotTime = 0, gameLoopId;
+        let chargeStartTime = 0, isCharging = false; // For charge shot
+        let killStreak = 0; // For reinforcement system
         let playerNickname = "ESL_Survivor"; // Kept default nickname
         let isTouchDevice = false;
         let joystickTouchId = null;
@@ -288,7 +292,12 @@
             'SHIELD': { name: "Armor Plating", description: "+30 Max HP & Damage Reduction", apply: (p) => { p.maxHealth += 30; p.health += 30; p.damageReduction = (p.damageReduction || 0) + 0.1; } },
             'LIFESTEAL': { name: "Vampire", description: "Heal 5 HP on kill", apply: (p) => p.lifesteal = (p.lifesteal || 0) + 5 },
             'CRIT_CHANCE': { name: "Critical Strike", description: "15% chance for 2x damage", apply: (p) => p.critChance = (p.critChance || 0) + 0.15 },
-            'DASH_COOLDOWN': { name: "Quick Dash", description: "-30% Dash Cooldown", apply: (p) => p.dashCooldown *= 0.7 }
+            'DASH_COOLDOWN': { name: "Quick Dash", description: "-30% Dash Cooldown", apply: (p) => p.dashCooldown *= 0.7 },
+            // NEWEST POWERUPS
+            'ORBITAL_AXE': { name: "Spinning Axes", description: "Axes orbit around you", apply: (p) => { p.orbitalCount = (p.orbitalCount || 0) + 1; addOrbitalWeapon(); } },
+            'CHARGE_SHOT': { name: "Mega Cannon", description: "Hold Space for huge shot", apply: (p) => p.hasChargeShot = true },
+            'STUN_SHOT': { name: "Stunner", description: "Stun projectiles pierce infinitely", apply: (p) => p.hasStunShot = true },
+            'RAGE_MODE': { name: "Berserker Rage", description: "10s mega boost at low HP", apply: (p) => p.hasRageMode = true }
         };
 
         // --- Question Generator ---
@@ -596,16 +605,19 @@
 
         // --- Game Initialization ---
         function init() {
-            enemies = []; projectiles = []; xpOrbs = []; powerUpDrops = []; particles = []; enemyProjectiles = []; // <-- Clear all arrays
+            enemies = []; projectiles = []; xpOrbs = []; powerUpDrops = []; particles = []; enemyProjectiles = []; orbitalWeapons = []; stunProjectiles = []; // <-- Clear all arrays
             score = 0; gameTime = 0; spawnTimer = 0; gamePaused = false, gameOver = false;
             correctAnswers = 0; incorrectAnswers = 0;
-            bossSpawnedLevel5 = false; bossSpawnedLevel10 = false; // Reset boss tracking
+            bossSpawnedLevel3 = false; bossSpawnedLevel5 = false; bossSpawnedLevel10 = false; // Reset boss tracking
+            chargeStartTime = 0; isCharging = false; killStreak = 0; // Reset new states
             player = JSON.parse(JSON.stringify(playerStats));
             // Reset dash state
             player.isDashing = false;
             player.dashTimer = 0;
             player.lastDashTime = 0; // Allow dash immediately
-            
+            player.rageActive = false; // Reset rage mode
+            player.rageEndTime = 0;
+
             camera.x = player.x - canvas.width / 2;
             camera.y = player.y - canvas.height / 2;
             updateHUD();
@@ -669,7 +681,7 @@
                 if (keys['KeyW'] || keys['ArrowUp']) targetVY = -player.speed;
                 if (keys['KeyS'] || keys['ArrowDown']) targetVY = player.speed;
                 if (keys['KeyA'] || keys['ArrowLeft']) targetVX = -player.speed;
-                if (keys['KeyD'] || keys['ArrowRight']) targetVY = player.speed;
+                if (keys['KeyD'] || keys['ArrowRight']) targetVX = player.speed; // FIXED: was targetVY
                 if (targetVX !== 0 && targetVY !== 0) {
                      const length = Math.sqrt(targetVX * targetVX + targetVY * targetVY);
                      targetVX = (targetVX / length) * player.speed;
@@ -688,11 +700,15 @@
             updateEnemies(delta);
             updateProjectiles(delta);
             updateEnemyProjectiles(delta); // <-- NEW: Update enemy projectiles
+            updateOrbitalWeapons(delta); // <-- NEW: Update orbital weapons
+            updateStunProjectiles(delta); // <-- NEW: Update stun projectiles
             updateDrops(delta);
             updateParticles(delta); // <-- NEW: Update particles
             handleCollisions();
             spawnEnemies(delta);
             checkBossSpawns(); // <-- NEW: Check for boss spawns
+            checkRageMode(); // <-- NEW: Check rage mode
+            checkKillStreak(); // <-- NEW: Check kill streak
             updateHUD();
             updateCooldowns(); // Update dash cooldown UI
         }
@@ -748,12 +764,29 @@
 
             // Shooting
              if (keys['Space'] || keys['mouseLeft'] || (isTouchDevice && keys['touchShoot'])) {
+                 if (player.hasChargeShot && !isCharging) {
+                     startChargingShot();
+                 }
                  shoot(player.weaponAngle);
+             } else if (isCharging) {
+                 releaseChargeShot();
+             }
+
+             // Auto-fire stun shots
+             if (player.hasStunShot && Math.random() > 0.95) {
+                 shootStunProjectile(player.weaponAngle);
              }
         }
 
         function updateEnemies(delta) {
              enemies.forEach(e => {
+                // Check if stunned
+                if (e.stunned && e.stunnedUntil > Date.now()) {
+                    return; // Skip movement and actions while stunned
+                } else if (e.stunned) {
+                    e.stunned = false; // Remove stun
+                }
+
                 const dx = player.x - e.x;
                 const dy = player.y - e.y;
                 const distSq = dx*dx + dy*dy;
@@ -958,6 +991,7 @@
         }
         function killEnemy(enemy, index) {
             score++;
+            killStreak++; // Increment kill streak
             createXpOrb(enemy.x, enemy.y, enemy.xp);
             spawnParticleEmitter(enemy.x, enemy.y, enemy.color, 20); // <-- NEW: Death explosion
 
@@ -1034,6 +1068,12 @@
         }
         function checkBossSpawns() {
             if (!player) return;
+
+            // Spawn boss at level 3
+            if (player.level >= 3 && !bossSpawnedLevel3) {
+                bossSpawnedLevel3 = true;
+                spawnBoss();
+            }
 
             // Spawn boss at level 5
             if (player.level >= 5 && !bossSpawnedLevel5) {
@@ -1176,6 +1216,178 @@
             }
         }
 
+        // --- Orbital Weapon System ---
+        function addOrbitalWeapon() {
+            const orbitalCount = player.orbitalCount || 0;
+            const angleOffset = (Math.PI * 2 / Math.max(1, orbitalCount)) * (orbitalCount - 1);
+            orbitalWeapons.push({
+                angle: angleOffset,
+                distance: 60,
+                size: 15,
+                damage: 40,
+                color: '#silver',
+                speed: 2 // Rotation speed
+            });
+        }
+
+        function updateOrbitalWeapons(delta) {
+            orbitalWeapons.forEach(weapon => {
+                weapon.angle += weapon.speed * delta;
+                weapon.x = player.x + Math.cos(weapon.angle) * weapon.distance;
+                weapon.y = player.y + Math.sin(weapon.angle) * weapon.distance;
+
+                // Check collision with enemies
+                for (let i = enemies.length - 1; i >= 0; i--) {
+                    const e = enemies[i];
+                    const dx = e.x - weapon.x;
+                    const dy = e.y - weapon.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < (e.size + weapon.size)) {
+                        handleEnemyHit(e, weapon.damage);
+                        spawnParticleEmitter(weapon.x, weapon.y, '#ffaa00', 5);
+                    }
+                }
+            });
+        }
+
+        // --- Stun Projectile System ---
+        function shootStunProjectile(angle) {
+            stunProjectiles.push({
+                x: player.x,
+                y: player.y,
+                vx: Math.cos(angle) * 300,
+                vy: Math.sin(angle) * 300,
+                size: 5,
+                damage: 5,
+                stunDuration: 2, // 2 seconds
+                lifetime: 10,
+                color: '#00ffff'
+            });
+        }
+
+        function updateStunProjectiles(delta) {
+            for (let i = stunProjectiles.length - 1; i >= 0; i--) {
+                const p = stunProjectiles[i];
+                p.x += p.vx * delta;
+                p.y += p.vy * delta;
+                p.lifetime -= delta;
+
+                if (p.lifetime <= 0 || p.x < 0 || p.x > world.width || p.y < 0 || p.y > world.height) {
+                    stunProjectiles.splice(i, 1);
+                    continue;
+                }
+
+                // Check collision with enemies
+                enemies.forEach(e => {
+                    const dx = e.x - p.x;
+                    const dy = e.y - p.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < (e.size + p.size)) {
+                        e.stunned = true;
+                        e.stunnedUntil = Date.now() + p.stunDuration * 1000;
+                        handleEnemyHit(e, p.damage);
+                        spawnParticleEmitter(p.x, p.y, '#00ffff', 3);
+                    }
+                });
+            }
+        }
+
+        // --- Charge Shot System ---
+        function startChargingShot() {
+            if (!player.hasChargeShot) return;
+            isCharging = true;
+            chargeStartTime = Date.now();
+        }
+
+        function releaseChargeShot() {
+            if (!isCharging || !player.hasChargeShot) return;
+            const chargeTime = (Date.now() - chargeStartTime) / 1000;
+            isCharging = false;
+
+            if (chargeTime < 0.5) return; // Minimum charge time
+
+            const chargePower = Math.min(3, chargeTime / 1.5); // Max 3x power at 1.5s
+            const angle = player.weaponAngle;
+
+            // Huge explosion at muzzle
+            spawnParticleEmitter(player.x, player.y, '#ff00ff', 30);
+
+            projectiles.push({
+                x: player.x,
+                y: player.y,
+                vx: Math.cos(angle) * 200,
+                vy: Math.sin(angle) * 200,
+                size: 20 * chargePower,
+                damage: player.projectileDamage * chargePower * 5,
+                lifetime: 5,
+                pierceCount: 999,
+                hitEnemies: [],
+                isCharged: true,
+                chargePower: chargePower
+            });
+        }
+
+        // --- Rage Mode System ---
+        function checkRageMode() {
+            if (!player.hasRageMode) return;
+            const now = Date.now();
+
+            // Activate rage when HP < 30%
+            if (player.health < player.maxHealth * 0.3 && !player.rageActive) {
+                player.rageActive = true;
+                player.rageEndTime = now + 10000; // 10 seconds
+                player.rageSpeed = player.speed;
+                player.rageDamage = player.projectileDamage;
+                player.rageFireRate = player.fireRate;
+                // Apply boosts
+                player.speed *= 2;
+                player.projectileDamage *= 2;
+                player.fireRate *= 2;
+                spawnParticleEmitter(player.x, player.y, '#ff0000', 50);
+            }
+
+            // Deactivate rage when time runs out
+            if (player.rageActive && now > player.rageEndTime) {
+                player.rageActive = false;
+                player.speed = player.rageSpeed;
+                player.projectileDamage = player.rageDamage;
+                player.fireRate = player.rageFireRate;
+            }
+
+            // Particle effect while raging
+            if (player.rageActive && Math.random() > 0.7) {
+                particles.push(createParticle(player.x, player.y, '#ff0000', 4, 0.3, 0, 0));
+            }
+        }
+
+        // --- Kill Streak System ---
+        function checkKillStreak() {
+            if (killStreak >= 38) {
+                // Spawn reinforcement enemies
+                for (let i = 0; i < 4; i++) {
+                    const angle = (Math.PI * 2 / 4) * i;
+                    const dist = 200;
+                    enemies.push({
+                        id: Math.random(),
+                        x: player.x + Math.cos(angle) * dist,
+                        y: player.y + Math.sin(angle) * dist,
+                        id_key: "Tank",
+                        name: "Reinforcement",
+                        size: 70,
+                        speed: 60, // Boosted speed
+                        health: 400,
+                        xp: 100,
+                        shape: 'rect',
+                        color: '#ff00ff',
+                        damage: 30,
+                        maxHealth: 400,
+                        isBoosted: true
+                    });
+                }
+                killStreak = 0; // Reset streak
+            }
+        }
+
         // --- Drawing ---
         function draw() {
             if (!ctx) return;
@@ -1190,9 +1402,25 @@
             xpOrbs.forEach(orb => drawDrop(orb));
             projectiles.forEach(p => drawProjectile(p));
             enemyProjectiles.forEach(p => drawEnemyProjectile(p)); // <-- NEW: Draw enemy projectiles
+            stunProjectiles.forEach(p => drawStunProjectile(p)); // <-- NEW: Draw stun projectiles
+            orbitalWeapons.forEach(w => drawOrbitalWeapon(w)); // <-- NEW: Draw orbital weapons
             enemies.forEach(e => drawEnemy(e)); // <-- Updated function
             particles.forEach(p => drawParticle(p)); // <-- NEW: Draw particles
             drawPlayerCharacter();
+
+            // Draw charge indicator
+            if (isCharging) {
+                const chargeTime = (Date.now() - chargeStartTime) / 1000;
+                const progress = Math.min(1, chargeTime / 1.5);
+                ctx.save();
+                ctx.globalAlpha = 0.5;
+                ctx.fillStyle = '#ff00ff';
+                ctx.beginPath();
+                ctx.arc(player.x, player.y, 30 + progress * 20, 0, Math.PI * 2 * progress);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+                ctx.restore();
+            }
 
             ctx.restore();
         }
@@ -1258,6 +1486,21 @@
 
         // --- NEW: Updated drawEnemy function ---
         function drawEnemy(e) {
+             // Add blue outline if stunned
+             if (e.stunned && e.stunnedUntil > Date.now()) {
+                 ctx.strokeStyle = '#00ffff';
+                 ctx.lineWidth = 3;
+                 if (e.shape === 'rect') {
+                    ctx.strokeRect(e.x - e.size / 2, e.y - e.size * 0.75, e.size, e.size * 1.5);
+                 } else if (e.shape === 'circle') {
+                    ctx.beginPath();
+                    ctx.arc(e.x, e.y, e.size / 2, 0, Math.PI * 2);
+                    ctx.stroke();
+                 } else {
+                    ctx.strokeRect(e.x - e.size / 2, e.y - e.size / 2, e.size, e.size);
+                 }
+             }
+
              ctx.fillStyle = e.color; // Use enemy's color
              if (e.shape === 'rect') {
                 ctx.fillRect(e.x - e.size / 2, e.y - e.size * 0.75, e.size, e.size * 1.5); // Draw rect
@@ -1283,7 +1526,17 @@
         }
 
         function drawProjectile(p) {
-            if (p.isCrit) {
+            if (p.isCharged) {
+                // Draw charged shot - big purple ball with glow
+                ctx.save();
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#ff00ff';
+                ctx.fillStyle = '#ff00ff';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            } else if (p.isCrit) {
                 ctx.fillStyle = '#ff0000'; // Red for crits
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, p.size / 2 * 1.5, 0, Math.PI * 2); // Larger
@@ -1301,6 +1554,40 @@
             ctx.beginPath();
             ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
             ctx.fill();
+        }
+
+        function drawStunProjectile(p) {
+            ctx.save();
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = p.color;
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function drawOrbitalWeapon(w) {
+            // Draw spinning axe
+            ctx.save();
+            ctx.translate(w.x, w.y);
+            ctx.rotate(w.angle * 3); // Spin the axe visually
+            ctx.fillStyle = '#c0c0c0'; // Silver
+            ctx.strokeStyle = '#808080'; // Gray outline
+            ctx.lineWidth = 2;
+
+            // Draw axe shape (simple cross)
+            ctx.beginPath();
+            ctx.moveTo(-w.size, 0);
+            ctx.lineTo(w.size, 0);
+            ctx.moveTo(0, -w.size);
+            ctx.lineTo(0, w.size);
+            ctx.stroke();
+
+            // Draw axe blades
+            ctx.fillRect(-w.size, -w.size/3, w.size*2, w.size/1.5);
+
+            ctx.restore();
         }
         
         function drawDrop(drop) {
