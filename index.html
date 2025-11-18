@@ -71,6 +71,25 @@
         }
         /* --- End Dash Button Styles --- */
 
+        .touch-bomb-button {
+            position: absolute;
+            bottom: 240px; /* Above dash button */
+            right: 20px;
+            width: 80px;
+            height: 80px;
+            background-color: rgba(255, 100, 0, 0.5); /* Orange for bombs */
+            border: 2px solid rgba(255, 150, 0, 0.8);
+            border-radius: 50%;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2rem;
+            color: white;
+            z-index: 21;
+        }
+
         .touch-question-button {
             position: absolute;
             bottom: 20px;
@@ -105,9 +124,9 @@
             levelUpModal, upgradeOptionsContainer,
             gameOverModal, finalScore, finalTime, restartButton,
             touchControlsContainer, joystickArea, joystickNub, shootArea,
-            ammoText, hudQuestionButton, questionModal, questionText, answerButtons,
+            ammoText, bombText, hudQuestionButton, questionModal, questionText, answerButtons,
             finalQuestionsCorrect, finalQuestionsIncorrect,
-            touchQuestionButton, touchDashButton, touchDashCooldown; // <-- Added dash button variables
+            touchQuestionButton, touchDashButton, touchDashCooldown, touchBombButton; // <-- Added bomb button
 
         function createUI() {
             gameContainer.innerHTML = `
@@ -115,6 +134,8 @@
                 <div id="touch-controls-container" class="hidden">
                     <div id="joystick-area" class="joystick-area"><div id="joystick-nub" class="joystick-nub"></div></div>
                     <div id="shoot-area"></div>
+                    <!-- Add new bomb button -->
+                    <div id="touch-bomb-button" class="touch-bomb-button">💣</div>
                     <!-- Add new dash button -->
                     <div id="touch-dash-button" class="touch-dash-button">
                         Dash
@@ -126,6 +147,7 @@
                 <div id="hud" class="absolute top-0 left-0 right-0 p-3 text-sm sm:text-base flex justify-between items-center text-white bg-black/30 hidden">
                     <div>
                         <div>Ammo: <span id="ammo-text">50</span> <button id="hud-question-button" class="ml-2 px-2 py-0.5 text-xs bg-purple-700 rounded hover:bg-purple-600">?</button></div>
+                        <div>Bombs: <span id="bomb-text">3</span></div>
                         <div>Score: <span id="score-text">0</span></div>
                     </div>
                     <div>Level: <span id="level-text">1</span></div>
@@ -168,6 +190,7 @@
             ctx = canvas.getContext('2d');
             hud = getEl('hud');
             ammoText = getEl('ammo-text');
+            bombText = getEl('bomb-text');
             scoreText = getEl('score-text');
             levelText = getEl('level-text');
             timeText = getEl('time-text');
@@ -194,15 +217,20 @@
             touchQuestionButton = getEl('touch-question-button'); // <-- Get new button
             touchDashButton = getEl('touch-dash-button'); // <-- Get dash button
             touchDashCooldown = getEl('touch-dash-cooldown'); // <-- Get dash cooldown UI
+            touchBombButton = getEl('touch-bomb-button'); // <-- Get bomb button
         }
 
         // --- Game State & Config ---
         let player, enemies = [], projectiles = [], xpOrbs = [], powerUpDrops = [];
         let particles = []; // <-- NEW: For particle effects
         let enemyProjectiles = []; // <-- NEW: For enemy projectiles
+        let orbitalWeapons = []; // <-- NEW: For orbital weapons like axes
+        let stunProjectiles = []; // <-- NEW: For stun projectiles
         let score = 0, gameTime = 0, spawnTimer = 0, gamePaused = false, gameOver = false, correctAnswers = 0, incorrectAnswers = 0;
-        let bossSpawnedLevel5 = false, bossSpawnedLevel10 = false; // Track boss spawns
+        let bossSpawnedLevel3 = false, bossSpawnedLevel5 = false, bossSpawnedLevel10 = false; // Track boss spawns
         let lastShotTime = 0, gameLoopId;
+        let chargeStartTime = 0, isCharging = false; // For charge shot
+        let killStreak = 0; // For reinforcement system
         let playerNickname = "ESL_Survivor"; // Kept default nickname
         let isTouchDevice = false;
         let joystickTouchId = null;
@@ -216,7 +244,7 @@
             x: world.width / 2, y: world.height / 2, size: 20, speed: 250, health: 100, maxHealth: 100, ammo: 50, // <-- Faster speed
             fireRate: 500, projectileSpeed: 350, projectileSize: 8, projectileDamage: 25,
             shotCount: 1, pickupRadius: 80, level: 1, xp: 0, xpToNextLevel: 100,
-            pierce: 0, spread: 0, 
+            pierce: 0, spread: 0,
             weaponAngle: 0, vx: 0, vy: 0,
             // --- Dash Stats ---
             dashSpeed: 1000,
@@ -224,7 +252,13 @@
             dashCooldown: 5000, // in milliseconds
             lastDashTime: 0,
             isDashing: false,
-            dashTimer: 0
+            dashTimer: 0,
+            // --- Bomb Stats ---
+            bombs: 3,
+            bombDamage: 100,
+            bombRadius: 200,
+            bombCooldown: 10000, // 10 seconds
+            lastBombTime: -10000 // Allow immediate use
         };
         // --- NEW: Updated Enemies ---
         const enemyTypes = [
@@ -233,6 +267,12 @@
             { id_key: "Scout", name: "Scout", size: 15, speed: 220, health: 30, xp: 18, shape: 'square', color: '#ffff44', damage: 4, maxHealth: 30 }, // Yellow square
             { id_key: "Swarm", name: "Swarm", size: 7, speed: 250, health: 10, xp: 15, shape: 'square', color: '#88ff88', damage: 1, maxHealth: 10 }, // Green square
             { id_key: "Flyer", name: "Flyer", size: 12, speed: 280, health: 25, xp: 20, shape: 'circle', color: '#ff88ff', damage: 3, maxHealth: 25 }, // Pink circle
+            // NEW ENEMY TYPES
+            { id_key: "Tank", name: "Tank", size: 70, speed: 30, health: 300, xp: 60, shape: 'rect', color: '#666666', damage: 20, maxHealth: 300 }, // Gray tank - slow, heavy
+            { id_key: "Assassin", name: "Assassin", size: 18, speed: 350, health: 20, xp: 35, shape: 'square', color: '#8800ff', damage: 15, maxHealth: 20 }, // Purple assassin - fast, deadly
+            { id_key: "Healer", name: "Healer", size: 25, speed: 100, health: 60, xp: 50, shape: 'circle', color: '#00ff88', damage: 2, maxHealth: 60, isHealer: true, healCooldown: 2000, lastHealTime: 0, healAmount: 15, healRadius: 150 }, // Green healer
+            { id_key: "Splitter", name: "Splitter", size: 30, speed: 120, health: 80, xp: 45, shape: 'square', color: '#ff8800', damage: 8, maxHealth: 80, isSplitter: true }, // Orange splitter
+            { id_key: "Bomber", name: "Bomber", size: 22, speed: 200, health: 35, xp: 30, shape: 'circle', color: '#ff0088', damage: 25, maxHealth: 35, isBomber: true, explosionRadius: 80, explosionDamage: 30 }, // Hot pink bomber
         ];
         const bossType = { id_key: "Boss", name: "Boss", size: 80, speed: 90, health: 900, xp: 2000, shape: 'rect', color: '#ff0000', damage: 250, maxHealth: 500, isBoss: true, shootCooldown: 200, lastShotTime: 0 }; // Large red boss
         // --- NEW: Insane Powerups ---
@@ -244,27 +284,50 @@
             'MULTISHOT': { name: "Spread Shot", description: "+2 Projectiles", apply: (p) => p.shotCount += 2 },
             'PIERCE': { name: "Piercing Shot", description: "Shots pierce +2 enemies", apply: (p) => p.pierce += 2 },
             'RANGE': { name: "Long-Range", description: "+50% Projectile Lifetime", apply: (p) => p.projectileLifetime = (p.projectileLifetime || 3) * 1.5 },
-            'PICKUP': { name: "XP Magnet", description: "+75% Pickup Radius", apply: (p) => p.pickupRadius *= 1.75 }
+            'PICKUP': { name: "XP Magnet", description: "+75% Pickup Radius", apply: (p) => p.pickupRadius *= 1.75 },
+            // NEW POWERUPS
+            'BOMB_CAPACITY': { name: "Bomb Cache", description: "+2 Bombs", apply: (p) => p.bombs += 2 },
+            'BOMB_DAMAGE': { name: "Explosive Power", description: "+50 Bomb Damage", apply: (p) => p.bombDamage += 50 },
+            'BOMB_RADIUS': { name: "Bigger Boom", description: "+50% Bomb Radius", apply: (p) => p.bombRadius *= 1.5 },
+            'SHIELD': { name: "Armor Plating", description: "+30 Max HP & Damage Reduction", apply: (p) => { p.maxHealth += 30; p.health += 30; p.damageReduction = (p.damageReduction || 0) + 0.1; } },
+            'LIFESTEAL': { name: "Vampire", description: "Heal 5 HP on kill", apply: (p) => p.lifesteal = (p.lifesteal || 0) + 5 },
+            'CRIT_CHANCE': { name: "Critical Strike", description: "15% chance for 2x damage", apply: (p) => p.critChance = (p.critChance || 0) + 0.15 },
+            'DASH_COOLDOWN': { name: "Quick Dash", description: "-30% Dash Cooldown", apply: (p) => p.dashCooldown *= 0.7 },
+            // NEWEST POWERUPS
+            'ORBITAL_AXE': { name: "Spinning Axes", description: "Axes orbit around you", apply: (p) => { p.orbitalCount = (p.orbitalCount || 0) + 1; addOrbitalWeapon(); } },
+            'CHARGE_SHOT': { name: "Mega Cannon", description: "Hold Space for huge shot", apply: (p) => p.hasChargeShot = true },
+            'STUN_SHOT': { name: "Stunner", description: "Stun projectiles pierce infinitely", apply: (p) => p.hasStunShot = true },
+            'RAGE_MODE': { name: "Berserker Rage", description: "10s mega boost at low HP", apply: (p) => p.hasRageMode = true }
         };
 
         // --- Question Generator ---
         const questionGenerator = {
             verbBank: [
-                { base: 'go', past: 'went', ing: 'going', object: 'to the store' },
-                { base: 'eat', past: 'ate', ing: 'eating', object: 'a large pizza' },
-                { base: 'sleep', past: 'slept', ing: 'sleeping', object: 'for ten hours' },
-                { base: 'watch', past: 'watched', ing: 'watching', object: 'a movie' },
-                { base: 'study', past: 'studied', ing: 'studying', object: 'for the test' },
-                { base: 'play', past: 'played', ing: 'playing', object: 'video games' },
-                { base: 'read', past: 'read', ing: 'reading', object: 'a good book' },
-                { base: 'write', past: 'wrote', ing: 'writing', object: 'a letter' },
-                { base: 'run', past: 'ran', ing: 'running', object: 'a marathon' },
-                { base: 'see', past: 'saw', ing: 'seeing', object: 'a concert' },
-                { base: 'buy', past: 'bought', ing: 'buying', object: 'new shoes' },
-                { base: 'make', past: 'made', ing: 'making', object: 'a cake' },
-                { base: 'take', past: 'took', ing: 'taking', object: 'the bus' },
-                { base: 'find', past: 'found', ing: 'finding', object: 'the keys' },
-                { base: 'give', past: 'gave', ing: 'giving', object: 'a gift' },
+                { base: 'go', past: 'went', ing: 'going', pastParticiple: 'gone', object: 'to the store' },
+                { base: 'eat', past: 'ate', ing: 'eating', pastParticiple: 'eaten', object: 'a large pizza' },
+                { base: 'sleep', past: 'slept', ing: 'sleeping', pastParticiple: 'slept', object: 'for ten hours' },
+                { base: 'watch', past: 'watched', ing: 'watching', pastParticiple: 'watched', object: 'a movie' },
+                { base: 'study', past: 'studied', ing: 'studying', pastParticiple: 'studied', object: 'for the test' },
+                { base: 'play', past: 'played', ing: 'playing', pastParticiple: 'played', object: 'video games' },
+                { base: 'read', past: 'read', ing: 'reading', pastParticiple: 'read', object: 'a good book' },
+                { base: 'write', past: 'wrote', ing: 'writing', pastParticiple: 'written', object: 'a letter' },
+                { base: 'run', past: 'ran', ing: 'running', pastParticiple: 'run', object: 'a marathon' },
+                { base: 'see', past: 'saw', ing: 'seeing', pastParticiple: 'seen', object: 'a concert' },
+                { base: 'buy', past: 'bought', ing: 'buying', pastParticiple: 'bought', object: 'new shoes' },
+                { base: 'make', past: 'made', ing: 'making', pastParticiple: 'made', object: 'a cake' },
+                { base: 'take', past: 'took', ing: 'taking', pastParticiple: 'taken', object: 'the bus' },
+                { base: 'find', past: 'found', ing: 'finding', pastParticiple: 'found', object: 'the keys' },
+                { base: 'give', past: 'gave', ing: 'giving', pastParticiple: 'given', object: 'a gift' },
+                { base: 'speak', past: 'spoke', ing: 'speaking', pastParticiple: 'spoken', object: 'English' },
+                { base: 'drink', past: 'drank', ing: 'drinking', pastParticiple: 'drunk', object: 'coffee' },
+                { base: 'swim', past: 'swam', ing: 'swimming', pastParticiple: 'swum', object: 'in the pool' },
+                { base: 'sing', past: 'sang', ing: 'singing', pastParticiple: 'sung', object: 'a song' },
+                { base: 'begin', past: 'began', ing: 'beginning', pastParticiple: 'begun', object: 'the project' },
+                { base: 'break', past: 'broke', ing: 'breaking', pastParticiple: 'broken', object: 'the vase' },
+                { base: 'choose', past: 'chose', ing: 'choosing', pastParticiple: 'chosen', object: 'a winner' },
+                { base: 'drive', past: 'drove', ing: 'driving', pastParticiple: 'driven', object: 'to work' },
+                { base: 'fly', past: 'flew', ing: 'flying', pastParticiple: 'flown', object: 'to Paris' },
+                { base: 'know', past: 'knew', ing: 'knowing', pastParticiple: 'known', object: 'the answer' },
             ],
             subjects: [
                 { s: 'I', was: 'was', were: 'was' },
@@ -297,6 +360,44 @@
                 { s1: 'We stayed inside', s2: 'it was cold', conjunction: 'because' },
                 { s1: 'I was reading a book', s2: 'my brother was playing games', conjunction: 'while' },
                 { s1: 'She was cooking dinner', s2: 'he was watching TV', conjunction: 'while' }
+            ],
+            modalVerbs: [
+                { modal: 'can', meaning: 'ability', example: 'swim' },
+                { modal: 'could', meaning: 'past ability', example: 'play piano' },
+                { modal: 'should', meaning: 'advice', example: 'study harder' },
+                { modal: 'must', meaning: 'obligation', example: 'finish homework' },
+                { modal: 'may', meaning: 'possibility', example: 'rain tomorrow' },
+                { modal: 'might', meaning: 'weak possibility', example: 'be late' },
+                { modal: 'would', meaning: 'conditional', example: 'help you' },
+                { modal: 'will', meaning: 'future', example: 'arrive soon' }
+            ],
+            prepositions: [
+                { prep: 'in', context: 'the morning', type: 'time' },
+                { prep: 'on', context: 'Monday', type: 'time' },
+                { prep: 'at', context: '3 PM', type: 'time' },
+                { prep: 'in', context: 'New York', type: 'place' },
+                { prep: 'on', context: 'the table', type: 'place' },
+                { prep: 'at', context: 'the station', type: 'place' },
+                { prep: 'by', context: 'car', type: 'method' },
+                { prep: 'with', context: 'my friends', type: 'accompaniment' },
+                { prep: 'for', context: 'three hours', type: 'duration' },
+                { prep: 'since', context: '2020', type: 'time point' }
+            ],
+            passiveObjects: [
+                { active: 'John wrote', object: 'the letter', passive: 'was written by' },
+                { active: 'They built', object: 'the house', passive: 'was built by' },
+                { active: 'She painted', object: 'the picture', passive: 'was painted by' },
+                { active: 'The chef cooked', object: 'the meal', passive: 'was cooked by' },
+                { active: 'Someone stole', object: 'my bike', passive: 'was stolen by' },
+                { active: 'The company hired', object: 'new workers', passive: 'were hired by' }
+            ],
+            conditionals: [
+                { condition: 'it rains', result: 'we will stay home', type: 'first' },
+                { condition: 'I had money', result: 'I would buy a car', type: 'second' },
+                { condition: 'she studies', result: 'she will pass', type: 'first' },
+                { condition: 'he were rich', result: 'he would travel', type: 'second' },
+                { condition: 'you heat ice', result: 'it melts', type: 'zero' },
+                { condition: 'I were you', result: 'I would apologize', type: 'second' }
             ],
             getRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; },
             shuffle(arr) {
@@ -393,12 +494,109 @@
                 return { q, a: shuffledAnswers, c: shuffledAnswers.indexOf(correctAnswer) };
             },
 
+            // Present Perfect Fill-in-the-blank
+            createPresentPerfectFill() {
+                const verb = this.getRandom(this.verbBank);
+                const subject = this.getRandom(this.subjects).s;
+                const hasHave = ['I', 'You', 'We', 'They'].includes(subject) ? 'have' : 'has';
+
+                const q = `${subject} ${hasHave} [___] ${verb.object}.`;
+                const correctAnswer = verb.pastParticiple;
+
+                let distractors = [verb.past, verb.base, verb.ing];
+                let answers = [correctAnswer, ...distractors];
+                answers = answers.filter((v, i, a) => a.indexOf(v) === i);
+                while (answers.length < 4) answers.push(`verb${answers.length}`);
+                answers = answers.slice(0, 4);
+
+                const shuffledAnswers = this.shuffle(answers);
+                return { q, a: shuffledAnswers, c: shuffledAnswers.indexOf(correctAnswer) };
+            },
+
+            // Modal Verb Fill-in-the-blank
+            createModalVerbFill() {
+                const modal = this.getRandom(this.modalVerbs);
+                const subject = this.getRandom(['I', 'You', 'He', 'She', 'We', 'They']);
+
+                const q = `${subject} [___] ${modal.example}.`;
+                const correctAnswer = modal.modal;
+
+                let distractors = this.modalVerbs
+                    .map(m => m.modal)
+                    .filter(m => m !== correctAnswer)
+                    .sort(() => Math.random() - 0.5)
+                    .slice(0, 3);
+
+                let answers = [correctAnswer, ...distractors].slice(0, 4);
+                const shuffledAnswers = this.shuffle(answers);
+                return { q, a: shuffledAnswers, c: shuffledAnswers.indexOf(correctAnswer) };
+            },
+
+            // Preposition Fill-in-the-blank
+            createPrepositionFill() {
+                const prep = this.getRandom(this.prepositions);
+                const q = `I will meet you [___] ${prep.context}.`;
+                const correctAnswer = prep.prep;
+
+                let distractors = this.prepositions
+                    .map(p => p.prep)
+                    .filter(p => p !== correctAnswer)
+                    .sort(() => Math.random() - 0.5)
+                    .slice(0, 3);
+
+                let answers = [correctAnswer, ...distractors];
+                answers = answers.filter((v, i, a) => a.indexOf(v) === i);
+                while (answers.length < 4) {
+                    const extra = this.getRandom(this.prepositions).prep;
+                    if (!answers.includes(extra)) answers.push(extra);
+                }
+                answers = answers.slice(0, 4);
+
+                const shuffledAnswers = this.shuffle(answers);
+                return { q, a: shuffledAnswers, c: shuffledAnswers.indexOf(correctAnswer) };
+            },
+
+            // Passive Voice Fill-in-the-blank
+            createPassiveVoiceFill() {
+                const passive = this.getRandom(this.passiveObjects);
+                const q = `${passive.object} [___] ${passive.active.toLowerCase().split(' ')[0]}.`;
+                const correctAnswer = passive.passive;
+
+                const distractors = ['is written by', 'wrote by', 'writing by'];
+                let answers = [correctAnswer, ...distractors];
+                answers = answers.filter((v, i, a) => a.indexOf(v) === i).slice(0, 4);
+
+                const shuffledAnswers = this.shuffle(answers);
+                return { q, a: shuffledAnswers, c: shuffledAnswers.indexOf(correctAnswer) };
+            },
+
+            // Conditional Fill-in-the-blank
+            createConditionalFill() {
+                const cond = this.getRandom(this.conditionals);
+                const q = `If ${cond.condition}, [___].`;
+                const correctAnswer = cond.result;
+
+                const distractors = this.conditionals
+                    .filter(c => c !== cond)
+                    .map(c => c.result)
+                    .slice(0, 3);
+
+                let answers = [correctAnswer, ...distractors].slice(0, 4);
+                const shuffledAnswers = this.shuffle(answers);
+                return { q, a: shuffledAnswers, c: shuffledAnswers.indexOf(correctAnswer) };
+            },
+
             generate() {
-                // Randomly select one of the three question types
+                // Randomly select one of the EIGHT question types
                 const questionTypes = [
                     this.createPastSimpleFill,
                     this.createPastContinuousFill,
-                    this.createConjunctionFill
+                    this.createConjunctionFill,
+                    this.createPresentPerfectFill,
+                    this.createModalVerbFill,
+                    this.createPrepositionFill,
+                    this.createPassiveVoiceFill,
+                    this.createConditionalFill
                 ];
                 const randomType = this.getRandom(questionTypes);
                 return randomType.call(this);
@@ -407,16 +605,19 @@
 
         // --- Game Initialization ---
         function init() {
-            enemies = []; projectiles = []; xpOrbs = []; powerUpDrops = []; particles = []; enemyProjectiles = []; // <-- Clear all arrays
+            enemies = []; projectiles = []; xpOrbs = []; powerUpDrops = []; particles = []; enemyProjectiles = []; orbitalWeapons = []; stunProjectiles = []; // <-- Clear all arrays
             score = 0; gameTime = 0; spawnTimer = 0; gamePaused = false, gameOver = false;
             correctAnswers = 0; incorrectAnswers = 0;
-            bossSpawnedLevel5 = false; bossSpawnedLevel10 = false; // Reset boss tracking
+            bossSpawnedLevel3 = false; bossSpawnedLevel5 = false; bossSpawnedLevel10 = false; // Reset boss tracking
+            chargeStartTime = 0; isCharging = false; killStreak = 0; // Reset new states
             player = JSON.parse(JSON.stringify(playerStats));
             // Reset dash state
             player.isDashing = false;
             player.dashTimer = 0;
             player.lastDashTime = 0; // Allow dash immediately
-            
+            player.rageActive = false; // Reset rage mode
+            player.rageEndTime = 0;
+
             camera.x = player.x - canvas.width / 2;
             camera.y = player.y - canvas.height / 2;
             updateHUD();
@@ -480,7 +681,7 @@
                 if (keys['KeyW'] || keys['ArrowUp']) targetVY = -player.speed;
                 if (keys['KeyS'] || keys['ArrowDown']) targetVY = player.speed;
                 if (keys['KeyA'] || keys['ArrowLeft']) targetVX = -player.speed;
-                if (keys['KeyD'] || keys['ArrowRight']) targetVY = player.speed;
+                if (keys['KeyD'] || keys['ArrowRight']) targetVX = player.speed; // FIXED: was targetVY
                 if (targetVX !== 0 && targetVY !== 0) {
                      const length = Math.sqrt(targetVX * targetVX + targetVY * targetVY);
                      targetVX = (targetVX / length) * player.speed;
@@ -499,11 +700,15 @@
             updateEnemies(delta);
             updateProjectiles(delta);
             updateEnemyProjectiles(delta); // <-- NEW: Update enemy projectiles
+            updateOrbitalWeapons(delta); // <-- NEW: Update orbital weapons
+            updateStunProjectiles(delta); // <-- NEW: Update stun projectiles
             updateDrops(delta);
             updateParticles(delta); // <-- NEW: Update particles
             handleCollisions();
             spawnEnemies(delta);
             checkBossSpawns(); // <-- NEW: Check for boss spawns
+            checkRageMode(); // <-- NEW: Check rage mode
+            checkKillStreak(); // <-- NEW: Check kill streak
             updateHUD();
             updateCooldowns(); // Update dash cooldown UI
         }
@@ -559,12 +764,29 @@
 
             // Shooting
              if (keys['Space'] || keys['mouseLeft'] || (isTouchDevice && keys['touchShoot'])) {
+                 if (player.hasChargeShot && !isCharging) {
+                     startChargingShot();
+                 }
                  shoot(player.weaponAngle);
+             } else if (isCharging) {
+                 releaseChargeShot();
+             }
+
+             // Auto-fire stun shots
+             if (player.hasStunShot && Math.random() > 0.95) {
+                 shootStunProjectile(player.weaponAngle);
              }
         }
 
         function updateEnemies(delta) {
              enemies.forEach(e => {
+                // Check if stunned
+                if (e.stunned && e.stunnedUntil > Date.now()) {
+                    return; // Skip movement and actions while stunned
+                } else if (e.stunned) {
+                    e.stunned = false; // Remove stun
+                }
+
                 const dx = player.x - e.x;
                 const dy = player.y - e.y;
                 const distSq = dx*dx + dy*dy;
@@ -580,6 +802,26 @@
                     if (now - e.lastShotTime >= e.shootCooldown) {
                         e.lastShotTime = now;
                         bossShoot(e);
+                    }
+                }
+
+                // Healer logic - heal nearby enemies
+                if (e.isHealer) {
+                    const now = Date.now();
+                    if (now - e.lastHealTime >= e.healCooldown) {
+                        e.lastHealTime = now;
+                        enemies.forEach(target => {
+                            if (target.id !== e.id && target.health < target.maxHealth) {
+                                const tdx = target.x - e.x;
+                                const tdy = target.y - e.y;
+                                const distToTarget = Math.sqrt(tdx*tdx + tdy*tdy);
+                                if (distToTarget < e.healRadius) {
+                                    target.health = Math.min(target.maxHealth, target.health + e.healAmount);
+                                    // Spawn heal particles
+                                    spawnParticleEmitter(target.x, target.y, '#00ff88', 5);
+                                }
+                            }
+                        });
                     }
                 }
             });
@@ -698,7 +940,9 @@
                  if (player.isDashing) continue; // Invincible while dashing
                  const dx = player.x - e.x; const dy = player.y - e.y;
                  if (dx*dx + dy*dy < (player.size + e.size) * (player.size + e.size)) {
-                     player.health -= e.damage;
+                     const damageReduction = player.damageReduction || 0;
+                     const actualDamage = e.damage * (1 - damageReduction);
+                     player.health -= actualDamage;
                      const angle = Math.atan2(dy, dx);
                      e.x -= Math.cos(angle) * e.size * 0.5;
                      e.y -= Math.sin(angle) * e.size * 0.5;
@@ -723,7 +967,9 @@
                 if (player.isDashing) continue; // Invincible while dashing
                 const dx = player.x - p.x; const dy = player.y - p.y;
                 if (dx*dx + dy*dy < (player.size + p.size) * (player.size + p.size)) {
-                    player.health -= p.damage;
+                    const damageReduction = player.damageReduction || 0;
+                    const actualDamage = p.damage * (1 - damageReduction);
+                    player.health -= actualDamage;
                     spawnParticleEmitter(p.x, p.y, '#ff0000', 5); // Red impact
                     enemyProjectiles.splice(i, 1);
                     if (player.health <= 0) {
@@ -745,8 +991,57 @@
         }
         function killEnemy(enemy, index) {
             score++;
+            killStreak++; // Increment kill streak
             createXpOrb(enemy.x, enemy.y, enemy.xp);
             spawnParticleEmitter(enemy.x, enemy.y, enemy.color, 20); // <-- NEW: Death explosion
+
+            // Lifesteal - heal on kill
+            if (player.lifesteal && player.lifesteal > 0) {
+                player.health = Math.min(player.maxHealth, player.health + player.lifesteal);
+                spawnParticleEmitter(player.x, player.y, '#00ff00', 5); // Green heal particles
+            }
+
+            // Bomber explodes on death - AOE damage to player
+            if (enemy.isBomber) {
+                const dx = player.x - enemy.x;
+                const dy = player.y - enemy.y;
+                const distToPlayer = Math.sqrt(dx*dx + dy*dy);
+                if (distToPlayer < enemy.explosionRadius) {
+                    if (!player.isDashing) { // Only damage if not dashing
+                        player.health -= enemy.explosionDamage;
+                        if (player.health <= 0) {
+                            player.health = 0;
+                            endGame();
+                        }
+                    }
+                }
+                // Explosion particles
+                spawnParticleEmitter(enemy.x, enemy.y, '#ffaa00', 40);
+            }
+
+            // Splitter splits into 2 smaller enemies
+            if (enemy.isSplitter) {
+                for (let i = 0; i < 2; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const offset = 30;
+                    enemies.push({
+                        id: Math.random(),
+                        x: enemy.x + Math.cos(angle) * offset,
+                        y: enemy.y + Math.sin(angle) * offset,
+                        id_key: "Swarm",
+                        name: "Swarm",
+                        size: 7,
+                        speed: 250,
+                        health: 10,
+                        xp: 8,
+                        shape: 'square',
+                        color: enemy.color,
+                        damage: 5,
+                        maxHealth: 10
+                    });
+                }
+            }
+
             enemies.splice(index, 1);
         }
         function spawnEnemies(delta) {
@@ -773,6 +1068,12 @@
         }
         function checkBossSpawns() {
             if (!player) return;
+
+            // Spawn boss at level 3
+            if (player.level >= 3 && !bossSpawnedLevel3) {
+                bossSpawnedLevel3 = true;
+                spawnBoss();
+            }
 
             // Spawn boss at level 5
             if (player.level >= 5 && !bossSpawnedLevel5) {
@@ -822,16 +1123,25 @@
                 const muzzleX = player.x + Math.cos(currentAngle) * (player.size * 1.2);
                 const muzzleY = player.y + Math.sin(currentAngle) * (player.size * 1.2);
                 spawnParticleEmitter(muzzleX, muzzleY, '#ffffaa', 3);
-                
+
+                // Calculate damage with crit chance
+                let damage = player.projectileDamage;
+                let isCrit = false;
+                if (player.critChance && Math.random() < player.critChance) {
+                    damage *= 2;
+                    isCrit = true;
+                }
+
                 projectiles.push({
                     x: player.x, y: player.y,
                     vx: Math.cos(currentAngle) * player.projectileSpeed,
                     vy: Math.sin(currentAngle) * player.projectileSpeed,
                     size: player.projectileSize,
-                    damage: player.projectileDamage,
+                    damage: damage,
                     lifetime: player.projectileLifetime || 3,
                     pierceCount: player.pierce,
-                    hitEnemies: []
+                    hitEnemies: [],
+                    isCrit: isCrit
                 });
             }
         }
@@ -847,7 +1157,7 @@
             player.lastDashTime = now;
             player.isDashing = true;
             player.dashTimer = player.dashDuration / 1000; // Convert ms to s
-            
+
             let dashDirX = player.vx;
             let dashDirY = player.vy;
             let mag = Math.hypot(dashDirX, dashDirY);
@@ -869,6 +1179,215 @@
             }
         }
 
+        // --- Bomb Function ---
+        function triggerBomb() {
+            if (!player || gamePaused) return;
+            if (player.bombs <= 0) return; // No bombs left
+            const now = Date.now();
+            if (now - player.lastBombTime < player.bombCooldown) return; // Check cooldown
+
+            player.bombs--;
+            player.lastBombTime = now;
+
+            // Massive explosion particles
+            spawnParticleEmitter(player.x, player.y, '#ffaa00', 100);
+            spawnParticleEmitter(player.x, player.y, '#ff4400', 80);
+
+            // Damage all enemies in radius
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                const dx = e.x - player.x;
+                const dy = e.y - player.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist < player.bombRadius) {
+                    handleEnemyHit(e, player.bombDamage);
+                }
+            }
+
+            // Destroy all enemy projectiles in radius
+            for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
+                const p = enemyProjectiles[i];
+                const dx = p.x - player.x;
+                const dy = p.y - player.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist < player.bombRadius) {
+                    enemyProjectiles.splice(i, 1);
+                }
+            }
+        }
+
+        // --- Orbital Weapon System ---
+        function addOrbitalWeapon() {
+            const orbitalCount = player.orbitalCount || 0;
+            const angleOffset = (Math.PI * 2 / Math.max(1, orbitalCount)) * (orbitalCount - 1);
+            orbitalWeapons.push({
+                angle: angleOffset,
+                distance: 60,
+                size: 15,
+                damage: 40,
+                color: '#silver',
+                speed: 2 // Rotation speed
+            });
+        }
+
+        function updateOrbitalWeapons(delta) {
+            orbitalWeapons.forEach(weapon => {
+                weapon.angle += weapon.speed * delta;
+                weapon.x = player.x + Math.cos(weapon.angle) * weapon.distance;
+                weapon.y = player.y + Math.sin(weapon.angle) * weapon.distance;
+
+                // Check collision with enemies
+                for (let i = enemies.length - 1; i >= 0; i--) {
+                    const e = enemies[i];
+                    const dx = e.x - weapon.x;
+                    const dy = e.y - weapon.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < (e.size + weapon.size)) {
+                        handleEnemyHit(e, weapon.damage);
+                        spawnParticleEmitter(weapon.x, weapon.y, '#ffaa00', 5);
+                    }
+                }
+            });
+        }
+
+        // --- Stun Projectile System ---
+        function shootStunProjectile(angle) {
+            stunProjectiles.push({
+                x: player.x,
+                y: player.y,
+                vx: Math.cos(angle) * 300,
+                vy: Math.sin(angle) * 300,
+                size: 5,
+                damage: 5,
+                stunDuration: 2, // 2 seconds
+                lifetime: 10,
+                color: '#00ffff'
+            });
+        }
+
+        function updateStunProjectiles(delta) {
+            for (let i = stunProjectiles.length - 1; i >= 0; i--) {
+                const p = stunProjectiles[i];
+                p.x += p.vx * delta;
+                p.y += p.vy * delta;
+                p.lifetime -= delta;
+
+                if (p.lifetime <= 0 || p.x < 0 || p.x > world.width || p.y < 0 || p.y > world.height) {
+                    stunProjectiles.splice(i, 1);
+                    continue;
+                }
+
+                // Check collision with enemies
+                enemies.forEach(e => {
+                    const dx = e.x - p.x;
+                    const dy = e.y - p.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < (e.size + p.size)) {
+                        e.stunned = true;
+                        e.stunnedUntil = Date.now() + p.stunDuration * 1000;
+                        handleEnemyHit(e, p.damage);
+                        spawnParticleEmitter(p.x, p.y, '#00ffff', 3);
+                    }
+                });
+            }
+        }
+
+        // --- Charge Shot System ---
+        function startChargingShot() {
+            if (!player.hasChargeShot) return;
+            isCharging = true;
+            chargeStartTime = Date.now();
+        }
+
+        function releaseChargeShot() {
+            if (!isCharging || !player.hasChargeShot) return;
+            const chargeTime = (Date.now() - chargeStartTime) / 1000;
+            isCharging = false;
+
+            if (chargeTime < 0.5) return; // Minimum charge time
+
+            const chargePower = Math.min(3, chargeTime / 1.5); // Max 3x power at 1.5s
+            const angle = player.weaponAngle;
+
+            // Huge explosion at muzzle
+            spawnParticleEmitter(player.x, player.y, '#ff00ff', 30);
+
+            projectiles.push({
+                x: player.x,
+                y: player.y,
+                vx: Math.cos(angle) * 200,
+                vy: Math.sin(angle) * 200,
+                size: 20 * chargePower,
+                damage: player.projectileDamage * chargePower * 5,
+                lifetime: 5,
+                pierceCount: 999,
+                hitEnemies: [],
+                isCharged: true,
+                chargePower: chargePower
+            });
+        }
+
+        // --- Rage Mode System ---
+        function checkRageMode() {
+            if (!player.hasRageMode) return;
+            const now = Date.now();
+
+            // Activate rage when HP < 30%
+            if (player.health < player.maxHealth * 0.3 && !player.rageActive) {
+                player.rageActive = true;
+                player.rageEndTime = now + 10000; // 10 seconds
+                player.rageSpeed = player.speed;
+                player.rageDamage = player.projectileDamage;
+                player.rageFireRate = player.fireRate;
+                // Apply boosts
+                player.speed *= 2;
+                player.projectileDamage *= 2;
+                player.fireRate *= 2;
+                spawnParticleEmitter(player.x, player.y, '#ff0000', 50);
+            }
+
+            // Deactivate rage when time runs out
+            if (player.rageActive && now > player.rageEndTime) {
+                player.rageActive = false;
+                player.speed = player.rageSpeed;
+                player.projectileDamage = player.rageDamage;
+                player.fireRate = player.rageFireRate;
+            }
+
+            // Particle effect while raging
+            if (player.rageActive && Math.random() > 0.7) {
+                particles.push(createParticle(player.x, player.y, '#ff0000', 4, 0.3, 0, 0));
+            }
+        }
+
+        // --- Kill Streak System ---
+        function checkKillStreak() {
+            if (killStreak >= 38) {
+                // Spawn reinforcement enemies
+                for (let i = 0; i < 4; i++) {
+                    const angle = (Math.PI * 2 / 4) * i;
+                    const dist = 200;
+                    enemies.push({
+                        id: Math.random(),
+                        x: player.x + Math.cos(angle) * dist,
+                        y: player.y + Math.sin(angle) * dist,
+                        id_key: "Tank",
+                        name: "Reinforcement",
+                        size: 70,
+                        speed: 60, // Boosted speed
+                        health: 400,
+                        xp: 100,
+                        shape: 'rect',
+                        color: '#ff00ff',
+                        damage: 30,
+                        maxHealth: 400,
+                        isBoosted: true
+                    });
+                }
+                killStreak = 0; // Reset streak
+            }
+        }
+
         // --- Drawing ---
         function draw() {
             if (!ctx) return;
@@ -883,9 +1402,25 @@
             xpOrbs.forEach(orb => drawDrop(orb));
             projectiles.forEach(p => drawProjectile(p));
             enemyProjectiles.forEach(p => drawEnemyProjectile(p)); // <-- NEW: Draw enemy projectiles
+            stunProjectiles.forEach(p => drawStunProjectile(p)); // <-- NEW: Draw stun projectiles
+            orbitalWeapons.forEach(w => drawOrbitalWeapon(w)); // <-- NEW: Draw orbital weapons
             enemies.forEach(e => drawEnemy(e)); // <-- Updated function
             particles.forEach(p => drawParticle(p)); // <-- NEW: Draw particles
             drawPlayerCharacter();
+
+            // Draw charge indicator
+            if (isCharging) {
+                const chargeTime = (Date.now() - chargeStartTime) / 1000;
+                const progress = Math.min(1, chargeTime / 1.5);
+                ctx.save();
+                ctx.globalAlpha = 0.5;
+                ctx.fillStyle = '#ff00ff';
+                ctx.beginPath();
+                ctx.arc(player.x, player.y, 30 + progress * 20, 0, Math.PI * 2 * progress);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+                ctx.restore();
+            }
 
             ctx.restore();
         }
@@ -951,6 +1486,21 @@
 
         // --- NEW: Updated drawEnemy function ---
         function drawEnemy(e) {
+             // Add blue outline if stunned
+             if (e.stunned && e.stunnedUntil > Date.now()) {
+                 ctx.strokeStyle = '#00ffff';
+                 ctx.lineWidth = 3;
+                 if (e.shape === 'rect') {
+                    ctx.strokeRect(e.x - e.size / 2, e.y - e.size * 0.75, e.size, e.size * 1.5);
+                 } else if (e.shape === 'circle') {
+                    ctx.beginPath();
+                    ctx.arc(e.x, e.y, e.size / 2, 0, Math.PI * 2);
+                    ctx.stroke();
+                 } else {
+                    ctx.strokeRect(e.x - e.size / 2, e.y - e.size / 2, e.size, e.size);
+                 }
+             }
+
              ctx.fillStyle = e.color; // Use enemy's color
              if (e.shape === 'rect') {
                 ctx.fillRect(e.x - e.size / 2, e.y - e.size * 0.75, e.size, e.size * 1.5); // Draw rect
@@ -976,10 +1526,27 @@
         }
 
         function drawProjectile(p) {
-            ctx.fillStyle = '#00ffff'; // Cyan laser
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2);
-            ctx.fill();
+            if (p.isCharged) {
+                // Draw charged shot - big purple ball with glow
+                ctx.save();
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#ff00ff';
+                ctx.fillStyle = '#ff00ff';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            } else if (p.isCrit) {
+                ctx.fillStyle = '#ff0000'; // Red for crits
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size / 2 * 1.5, 0, Math.PI * 2); // Larger
+                ctx.fill();
+            } else {
+                ctx.fillStyle = '#00ffff'; // Cyan laser
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
 
         function drawEnemyProjectile(p) {
@@ -987,6 +1554,40 @@
             ctx.beginPath();
             ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
             ctx.fill();
+        }
+
+        function drawStunProjectile(p) {
+            ctx.save();
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = p.color;
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function drawOrbitalWeapon(w) {
+            // Draw spinning axe
+            ctx.save();
+            ctx.translate(w.x, w.y);
+            ctx.rotate(w.angle * 3); // Spin the axe visually
+            ctx.fillStyle = '#c0c0c0'; // Silver
+            ctx.strokeStyle = '#808080'; // Gray outline
+            ctx.lineWidth = 2;
+
+            // Draw axe shape (simple cross)
+            ctx.beginPath();
+            ctx.moveTo(-w.size, 0);
+            ctx.lineTo(w.size, 0);
+            ctx.moveTo(0, -w.size);
+            ctx.lineTo(0, w.size);
+            ctx.stroke();
+
+            // Draw axe blades
+            ctx.fillRect(-w.size, -w.size/3, w.size*2, w.size/1.5);
+
+            ctx.restore();
         }
         
         function drawDrop(drop) {
@@ -1019,6 +1620,7 @@
         // --- UI & Event Listeners ---
         function updateHUD() {
             if(ammoText) ammoText.textContent = player?.ammo ?? 'N/A';
+            if(bombText) bombText.textContent = player?.bombs ?? 0;
             if(scoreText) scoreText.textContent = score;
             if(levelText) levelText.textContent = player?.level ?? 1;
             if(timeText) timeText.textContent = Math.floor(gameTime) + 's';
@@ -1106,14 +1708,17 @@
         }
         
         // --- Input Listeners ---
-        window.addEventListener('keydown', (e) => { 
+        window.addEventListener('keydown', (e) => {
             if (e.code) { // Check if e.code exists
-                keys[e.code] = true; 
+                keys[e.code] = true;
                 if(e.code.toLowerCase() === 'keyq') {
-                    askQuestion(); 
+                    askQuestion();
                 }
                 if(e.code.toLowerCase() === 'shiftleft') { // Dash key
                     triggerDash();
+                }
+                if(e.code.toLowerCase() === 'keyb') { // Bomb key
+                    triggerBomb();
                 }
             }
         });
@@ -1144,6 +1749,16 @@
                 if (activeTouches[touchId]) continue; // Already tracking this touch
 
                 const x = touch.clientX; const y = touch.clientY;
+
+                // Check for new bomb button
+                if (touchBombButton) {
+                    const bombRect = touchBombButton.getBoundingClientRect();
+                    if (x > bombRect.left && x < bombRect.right && y > bombRect.top && y < bombRect.bottom) {
+                        activeTouches[touchId] = { type: 'bomb' };
+                        // We'll trigger the bomb on touch *end*
+                        continue; // This touch is handled
+                    }
+                }
 
                 // Check for new dash button
                 if (touchDashButton) {
@@ -1241,6 +1856,10 @@
                     // Check if this was the dash button touch
                     if (activeTouches[touchId]?.type === 'dash') {
                         triggerDash(); // Trigger dash on tap release
+                    }
+                    // Check if this was the bomb button touch
+                    if (activeTouches[touchId]?.type === 'bomb') {
+                        triggerBomb(); // Trigger bomb on tap release
                     }
                     delete activeTouches[touchId];
                 }
