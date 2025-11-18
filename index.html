@@ -35,8 +35,8 @@
             -webkit-user-select: text; /* Allow text selection */
             user-select: text; /* Allow text selection */
         }
-        #xp-bar-container { width: 100%; height: 15px; background-color: #444; border: 2px solid #00ffff; border-radius: 5px; overflow: hidden; }
-        #xp-bar-fill { height: 100%; background-color: #00ffff; width: 0%; transition: width 0.3s ease; }
+        #xp-bar-container { width: 100%; height: 15px; background-color: #444; border: 2px solid #39ff14; border-radius: 5px; overflow: hidden; }
+        #xp-bar-fill { height: 100%; background-color: #39ff14; width: 0%; transition: width 0.3s ease; }
         #touch-controls-container { position: absolute; bottom: 0; left: 0; right: 0; top: 0; z-index: 20; pointer-events: none; }
         .joystick-area { position: absolute; bottom: 20px; left: 20px; width: 150px; height: 150px; background-color: rgba(100, 100, 100, 0.2); border: 2px solid rgba(0, 255, 255, 0.5); border-radius: 50%; pointer-events: auto; }
         .joystick-nub { position: absolute; top: 50%; left: 50%; width: 60px; height: 60px; background-color: rgba(0, 255, 255, 0.5); border: 2px solid rgba(128, 255, 255, 0.8); border-radius: 50%; transform: translate(-50%, -50%); }
@@ -274,7 +274,7 @@
             { id_key: "Splitter", name: "Splitter", size: 30, speed: 120, health: 80, xp: 45, shape: 'square', color: '#ff8800', damage: 8, maxHealth: 80, isSplitter: true }, // Orange splitter
             { id_key: "Bomber", name: "Bomber", size: 22, speed: 200, health: 35, xp: 30, shape: 'circle', color: '#ff0088', damage: 25, maxHealth: 35, isBomber: true, explosionRadius: 80, explosionDamage: 30 }, // Hot pink bomber
         ];
-        const bossType = { id_key: "Boss", name: "Boss", size: 80, speed: 90, health: 900, xp: 2000, shape: 'rect', color: '#ff0000', damage: 250, maxHealth: 500, isBoss: true, shootCooldown: 200, lastShotTime: 0 }; // Large red boss
+        const bossType = { id_key: "Boss", name: "Boss", size: 80, speed: 90, health: 900, xp: 2000, shape: 'rect', color: '#ff0000', damage: 250, maxHealth: 500, isBoss: true, shootCooldown: 200, lastShotTime: 0, isMultipart: true }; // Large red multipart boss
         // --- NEW: Insane Powerups ---
         const powerUpTypes = {
             'HEALTH': { name: "Health Pack", description: "+50 Max HP", apply: (p) => { p.maxHealth += 50; p.health = Math.min(p.maxHealth, p.health + 50); } },
@@ -918,20 +918,64 @@
                 for (let ei = enemies.length - 1; ei >= 0; ei--) {
                     const e = enemies[ei];
                     if (p.hitEnemies?.includes(e.id)) continue;
-                    const dx = e.x - p.x; const dy = e.y - p.y;
-                    const distSq = dx*dx + dy*dy;
-                    if (distSq < (e.size + p.size) * (e.size + p.size)) {
-                        handleEnemyHit(e, p.damage);
-                        spawnParticleEmitter(p.x, p.y, '#ffffff', 3); // <-- NEW: Hit spark
-                        if (!p.hitEnemies) p.hitEnemies = [];
-                        p.hitEnemies.push(e.id);
-                        if (p.pierceCount <= 0) {
-                            projectiles.splice(pi, 1);
-                            break;
-                        } else {
-                            p.pierceCount--;
+
+                    let hitDetected = false;
+
+                    // Check limb hits first for multipart bosses
+                    if (e.isMultipart && e.limbs) {
+                        for (let li = 0; li < e.limbs.length; li++) {
+                            const limb = e.limbs[li];
+                            if (limb.health <= 0) continue;
+
+                            const limbX = e.x + limb.offsetX;
+                            const limbY = e.y + limb.offsetY;
+
+                            // Rectangle collision for limbs
+                            if (p.x >= limbX - limb.width / 2 && p.x <= limbX + limb.width / 2 &&
+                                p.y >= limbY - limb.height / 2 && p.y <= limbY + limb.height / 2) {
+
+                                limb.health -= p.damage;
+                                spawnParticleEmitter(p.x, p.y, limb.color, 5);
+
+                                if (limb.health <= 0) {
+                                    limb.health = 0;
+                                    createXpOrb(limbX, limbY, limb.xp);
+                                    spawnParticleEmitter(limbX, limbY, limb.color, 15);
+                                }
+
+                                hitDetected = true;
+                                if (!p.hitEnemies) p.hitEnemies = [];
+                                p.hitEnemies.push(e.id + '_limb_' + li);
+
+                                if (p.pierceCount <= 0) {
+                                    projectiles.splice(pi, 1);
+                                }  else {
+                                    p.pierceCount--;
+                                }
+                                break;
+                            }
                         }
                     }
+
+                    // If no limb hit, check body hit
+                    if (!hitDetected) {
+                        const dx = e.x - p.x; const dy = e.y - p.y;
+                        const distSq = dx*dx + dy*dy;
+                        if (distSq < (e.size + p.size) * (e.size + p.size)) {
+                            handleEnemyHit(e, p.damage);
+                            spawnParticleEmitter(p.x, p.y, '#ffffff', 3); // <-- NEW: Hit spark
+                            if (!p.hitEnemies) p.hitEnemies = [];
+                            p.hitEnemies.push(e.id);
+                            if (p.pierceCount <= 0) {
+                                projectiles.splice(pi, 1);
+                                break;
+                            } else {
+                                p.pierceCount--;
+                            }
+                        }
+                    }
+
+                    if (hitDetected) break;
                 }
             }
             // Player vs Enemy
@@ -1093,12 +1137,29 @@
             const x = player.x + Math.cos(angle) * spawnDist;
             const y = player.y + Math.sin(angle) * spawnDist;
 
-            enemies.push({
+            // Create multipart boss with limbs
+            const boss = {
                 id: Math.random(), x: x, y: y, ...bossType,
                 health: bossType.health,
                 maxHealth: bossType.health,
                 lastShotTime: Date.now() // Initialize shooting timer
-            });
+            };
+
+            // Add limbs if multipart boss
+            if (boss.isMultipart) {
+                boss.limbs = [
+                    // Left arm
+                    { id: Math.random(), type: 'leftArm', offsetX: -boss.size * 0.8, offsetY: -boss.size * 0.3, width: boss.size * 0.4, height: boss.size * 0.8, health: 150, maxHealth: 150, color: '#cc0000', xp: 300 },
+                    // Right arm
+                    { id: Math.random(), type: 'rightArm', offsetX: boss.size * 0.8, offsetY: -boss.size * 0.3, width: boss.size * 0.4, height: boss.size * 0.8, health: 150, maxHealth: 150, color: '#cc0000', xp: 300 },
+                    // Left leg
+                    { id: Math.random(), type: 'leftLeg', offsetX: -boss.size * 0.3, offsetY: boss.size * 0.8, width: boss.size * 0.35, height: boss.size * 0.6, health: 120, maxHealth: 120, color: '#aa0000', xp: 250 },
+                    // Right leg
+                    { id: Math.random(), type: 'rightLeg', offsetX: boss.size * 0.3, offsetY: boss.size * 0.8, width: boss.size * 0.35, height: boss.size * 0.6, health: 120, maxHealth: 120, color: '#aa0000', xp: 250 }
+                ];
+            }
+
+            enemies.push(boss);
         }
         function shoot(angle) {
             if (!player) return;
@@ -1146,7 +1207,7 @@
             }
         }
         function createXpOrb(x, y, value) {
-             xpOrbs.push({ x: x, y: y, size: 5, value: value, color: '#00ffff' }); // Cyan XP orb
+             xpOrbs.push({ x: x, y: y, size: 5, value: value, color: '#39ff14' }); // Neon green XP orb
         }
         // --- New Dash Function ---
         function triggerDash() {
@@ -1239,12 +1300,49 @@
                 // Check collision with enemies
                 for (let i = enemies.length - 1; i >= 0; i--) {
                     const e = enemies[i];
-                    const dx = e.x - weapon.x;
-                    const dy = e.y - weapon.y;
-                    const dist = Math.sqrt(dx*dx + dy*dy);
-                    if (dist < (e.size + weapon.size)) {
-                        handleEnemyHit(e, weapon.damage);
-                        spawnParticleEmitter(weapon.x, weapon.y, '#ffaa00', 5);
+
+                    let hitDetected = false;
+
+                    // Check limb hits first for multipart bosses
+                    if (e.isMultipart && e.limbs) {
+                        for (let li = 0; li < e.limbs.length; li++) {
+                            const limb = e.limbs[li];
+                            if (limb.health <= 0) continue;
+
+                            const limbX = e.x + limb.offsetX;
+                            const limbY = e.y + limb.offsetY;
+
+                            // Circle-rectangle collision for orbital weapons
+                            const closestX = Math.max(limbX - limb.width / 2, Math.min(weapon.x, limbX + limb.width / 2));
+                            const closestY = Math.max(limbY - limb.height / 2, Math.min(weapon.y, limbY + limb.height / 2));
+                            const dx = weapon.x - closestX;
+                            const dy = weapon.y - closestY;
+
+                            if (dx*dx + dy*dy < weapon.size * weapon.size) {
+                                limb.health -= weapon.damage;
+                                spawnParticleEmitter(weapon.x, weapon.y, limb.color, 5);
+
+                                if (limb.health <= 0) {
+                                    limb.health = 0;
+                                    createXpOrb(limbX, limbY, limb.xp);
+                                    spawnParticleEmitter(limbX, limbY, limb.color, 15);
+                                }
+
+                                hitDetected = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // If no limb hit, check body hit
+                    if (!hitDetected) {
+                        const dx = e.x - weapon.x;
+                        const dy = e.y - weapon.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        if (dist < (e.size + weapon.size)) {
+                            handleEnemyHit(e, weapon.damage);
+                            spawnParticleEmitter(weapon.x, weapon.y, '#ffaa00', 5);
+                        }
                     }
                 }
             });
@@ -1486,6 +1584,32 @@
 
         // --- NEW: Updated drawEnemy function ---
         function drawEnemy(e) {
+             // Draw limbs first (behind body) for multipart bosses
+             if (e.isMultipart && e.limbs) {
+                 e.limbs.forEach(limb => {
+                     if (limb.health > 0) {
+                         const limbX = e.x + limb.offsetX;
+                         const limbY = e.y + limb.offsetY;
+
+                         // Draw limb
+                         ctx.fillStyle = limb.color;
+                         ctx.fillRect(limbX - limb.width / 2, limbY - limb.height / 2, limb.width, limb.height);
+
+                         // Draw limb health bar
+                         if (limb.health < limb.maxHealth) {
+                             const barWidth = limb.width;
+                             const barHeight = 3;
+                             const barX = limbX - barWidth / 2;
+                             const barY = limbY - limb.height / 2 - 6;
+                             ctx.fillStyle = '#660000';
+                             ctx.fillRect(barX, barY, barWidth, barHeight);
+                             ctx.fillStyle = '#ff6600';
+                             ctx.fillRect(barX, barY, barWidth * (limb.health / limb.maxHealth), barHeight);
+                         }
+                     }
+                 });
+             }
+
              // Add blue outline if stunned
              if (e.stunned && e.stunnedUntil > Date.now()) {
                  ctx.strokeStyle = '#00ffff';
