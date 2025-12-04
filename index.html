@@ -121,7 +121,7 @@
         // --- DOM Elements ---
         const getEl = id => document.getElementById(id);
         const gameContainer = document.getElementById('game-container');
-        let canvas, ctx, hud, scoreText, levelText, timeText, xp_hud, xpBarFill,
+        let canvas, hud, scoreText, levelText, timeText, xp_hud, xpBarFill,
             levelUpModal, upgradeOptionsContainer,
             gameOverModal, finalScore, finalTime, restartButton,
             touchControlsContainer, joystickArea, joystickNub, shootArea,
@@ -197,7 +197,6 @@
 
         function initUI() {
             canvas = getEl('gameCanvas');
-            ctx = canvas.getContext('2d');
             hud = getEl('hud');
             ammoText = getEl('ammo-text');
             bombText = getEl('bomb-text');
