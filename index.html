@@ -404,11 +404,76 @@
             'ORBITAL_AXE': { name: "Spinning Axes", description: "Axes orbit around you", apply: (p) => { p.orbitalCount = (p.orbitalCount || 0) + 1; addOrbitalWeapon(); } },
             'CHARGE_SHOT': { name: "Mega Cannon", description: "Hold Space for huge shot", apply: (p) => p.hasChargeShot = true },
             'STUN_SHOT': { name: "Stunner", description: "Stun projectiles pierce infinitely", apply: (p) => p.hasStunShot = true },
-            'RAGE_MODE': { name: "Berserker Rage", description: "10s mega boost at low HP", apply: (p) => p.hasRageMode = true }
+            'RAGE_MODE': { name: "Berserker Rage", description: "10s mega boost at low HP", apply: (p) => p.hasRageMode = true },
+            // MORE POWERUPS
+            'PHARAOH_BLESSING': { name: "Pharaoh's Blessing", description: "+100 Max HP & Regeneration", apply: (p) => { p.maxHealth += 100; p.health += 100; p.healthRegen = (p.healthRegen || 0) + 2; } },
+            'HIEROGLYPHIC_SHIELD': { name: "Hieroglyphic Shield", description: "+25% Damage Reduction", apply: (p) => p.damageReduction = (p.damageReduction || 0) + 0.25 },
+            'ABORIGINAL_WISDOM': { name: "Aboriginal Wisdom", description: "+200% XP Gain", apply: (p) => p.xpMultiplier = (p.xpMultiplier || 1) * 3 },
+            'DOT_PAINTING_POWER': { name: "Dot Painting Power", description: "Projectiles split on hit", apply: (p) => { p.splitShot = (p.splitShot || 0) + 1; } },
+            'GLADIATOR_STRENGTH': { name: "Gladiator's Strength", description: "+30 Damage & Knockback", apply: (p) => { p.projectileDamage += 30; p.knockback = (p.knockback || 0) + 50; } },
+            'TUTANKHAMUN_TREASURE': { name: "Tutankhamun's Treasure", description: "+3 Bombs & +100 Bomb Damage", apply: (p) => { p.bombs += 3; p.bombDamage += 100; } },
+            'SENET_STRATEGY': { name: "Senet Strategy", description: "Faster Fire Rate & Cooldowns", apply: (p) => { p.fireRate *= 2; p.dashCooldown *= 0.5; } },
+            'CHARIOT_SPEED': { name: "Golden Chariot", description: "+50% Move Speed & Dash", apply: (p) => { p.speed *= 1.5; p.dashDistance = (p.dashDistance || 150) * 1.3; } },
+            'MUMMY_CURSE': { name: "Mummy's Curse", description: "Enemies burn over time", apply: (p) => p.hasMummyCurse = true },
+            'ABORIGINAL_SPIRIT': { name: "Aboriginal Spirit", description: "+2 Orbitals & Lifesteal", apply: (p) => { p.orbitalCount = (p.orbitalCount || 0) + 2; addOrbitalWeapon(); addOrbitalWeapon(); p.lifesteal = (p.lifesteal || 0) + 10; } },
+            'VALLEY_GUARDIAN': { name: "Valley Guardian", description: "Auto-Shield every 10s", apply: (p) => p.hasAutoShield = true },
+            'OCHRE_POWER': { name: "Ochre Power", description: "+5 Projectiles & Pierce", apply: (p) => { p.shotCount += 5; p.pierce += 3; } }
         };
 
         // --- Question Generator ---
         const questionGenerator = {
+            // ESL Worksheet Questions - Literary Terms
+            literaryTerms: [
+                { term: 'fable', definition: 'usually has a moral or a life lesson that helps us stay on a positive path in life', distractors: ['simile', 'dialogue', 'sequence'] },
+                { term: 'stream', definition: 'water that flows from one side of town all the way to the other side in a very long path', distractors: ['river', 'ocean', 'lake'] },
+                { term: 'mummy', definition: 'in Egyptian culture a person\'s remains are wrapped and kept in a case', distractors: ['pharaoh', 'sarcophagus', 'tomb'] },
+                { term: 'Roman numerals', definition: 'used in a counting system that has been around for hundreds of years', distractors: ['hieroglyphics', 'Arabic numerals', 'symbols'] },
+                { term: 'gladiator', definition: 'was brave and honourable during his competition inside the colosseum', distractors: ['warrior', 'soldier', 'knight'] },
+                { term: 'tribes', definition: 'one of the oldest civilizations known to man are Aboriginals from Australia', distractors: ['nations', 'groups', 'clans'] },
+                { term: 'dialogue', definition: 'two people talking to each other', distractors: ['monologue', 'conversation', 'speech'] },
+                { term: 'sequence', definition: 'stories have a beginning, middle, and end. This helps us follow the order of the story', distractors: ['plot', 'timeline', 'structure'] },
+                { term: 'connectives', definition: 'words such as "but, so, and, next" that help tell a story', distractors: ['conjunctions', 'prepositions', 'adverbs'] },
+                { term: 'similes', definition: 'used in stories to help compare two things, often using the words "like" or "as a"', distractors: ['metaphors', 'analogies', 'comparisons'] }
+            ],
+
+            // King Tut Questions
+            kingTutFacts: [
+                { q: "King Tutankhamun's tomb was discovered in which valley?", correct: "Valley of the Kings", distractors: ["Valley of the Queens", "Nile Valley", "Sacred Valley"] },
+                { q: "Who discovered King Tut's tomb in 1922?", correct: "Howard Carter", distractors: ["Napoleon Bonaparte", "Indiana Jones", "Lord Carnarvon"] },
+                { q: "How old was Tutankhamun when he became Pharaoh?", correct: "9 years old", distractors: ["5 years old", "12 years old", "15 years old"] },
+                { q: "How many treasures were found in King Tut's tomb?", correct: "More than 3,000", distractors: ["About 500", "Around 1,000", "Over 10,000"] },
+                { q: "What was King Tut's age when he died?", correct: "18 years old", distractors: ["25 years old", "30 years old", "15 years old"] },
+                { q: "What game was found in King Tut's tomb?", correct: "Senet", distractors: ["Chess", "Checkers", "Backgammon"] },
+                { q: "What year did Tutankhamun become Pharaoh?", correct: "1337 BCE", distractors: ["1450 BCE", "1200 BCE", "1500 BCE"] },
+                { q: "What was the most incredible discovery in the tomb?", correct: "The mummy and solid gold face mask", distractors: ["The chariot", "The throne", "The weapons"] },
+                { q: "What writing system was found on the tomb walls?", correct: "Hieroglyphics", distractors: ["Cuneiform", "Sanskrit", "Latin"] },
+                { q: "Some scientists believe King Tut died from:", correct: "An infection in a broken leg", distractors: ["Poisoning", "Old age", "Battle wounds"] },
+                { q: "Why was King Tut's tomb undiscovered for 3,000 years?", correct: "It was so small", distractors: ["It was hidden underwater", "It was in a secret location", "It was buried deep"] },
+                { q: "What did Howard Carter say entering the tomb was like?", correct: "Entering a time machine", distractors: ["Finding treasure", "A dream come true", "Opening a portal"] },
+                { q: "King Tutankhamun's father died in which year?", correct: "1337 BCE", distractors: ["1400 BCE", "1300 BCE", "1250 BCE"] },
+                { q: "What material was King Tut's face mask made of?", correct: "Solid gold", distractors: ["Bronze", "Silver", "Copper"] },
+                { q: "What can scientists learn from King Tut's tomb?", correct: "Daily life in Ancient Egypt", distractors: ["Egyptian military tactics", "Egyptian language only", "Egyptian weather patterns"] }
+            ],
+
+            // Aboriginal Art Questions
+            aboriginalArtFacts: [
+                { q: "How long have Aboriginal people lived in Australia?", correct: "About 125,000 years", distractors: ["About 50,000 years", "About 200,000 years", "About 10,000 years"] },
+                { q: "How old is the oldest Aboriginal artwork ever found?", correct: "About 40,000 years old", distractors: ["About 20,000 years old", "About 60,000 years old", "About 10,000 years old"] },
+                { q: "What is a popular form of Aboriginal art?", correct: "Dot painting", distractors: ["Oil painting", "Watercolor", "Sculpture only"] },
+                { q: "What natural resource did Aboriginals use to make black color?", correct: "Charcoal", distractors: ["Coal", "Ash", "Mud"] },
+                { q: "What do yellow dots represent in Aboriginal art?", correct: "The sun", distractors: ["The moon", "Stars", "Flowers"] },
+                { q: "What does red represent in Aboriginal dot paintings?", correct: "Red desert sand", distractors: ["Blood", "Fire", "Sunset"] },
+                { q: "What does white represent in Aboriginal art?", correct: "Clouds and sky", distractors: ["Snow", "Bones", "Pearls"] },
+                { q: "What does brown represent in Aboriginal paintings?", correct: "The soil", distractors: ["Trees", "Animals", "Wood"] },
+                { q: "Why did Aboriginal people use dots in their art?", correct: "To hide secret messages from Europeans", distractors: ["Because it was easier", "To save paint", "For decoration only"] },
+                { q: "What materials come from the outer part of a tree?", correct: "Bark", distractors: ["Wood", "Leaves", "Roots"] },
+                { q: "What is clay?", correct: "Material from earth, soft when wet and hard when dry", distractors: ["A type of rock", "Dried mud only", "A metal"] },
+                { q: "Where can dot paintings be found?", correct: "On rocks and in caves", distractors: ["Only in museums", "Only on paper", "Only on canvas"] },
+                { q: "What did Aboriginal people use to produce white, yellow, and red colors?", correct: "Ochre and clay", distractors: ["Flowers and berries", "Modern paint", "Tree sap"] },
+                { q: "Aboriginal art was used to:", correct: "Tell stories and educate children", distractors: ["Decorate homes only", "Trade with Europeans", "Mark territory only"] },
+                { q: "Besides dots, what other shapes did Aboriginal people use?", correct: "Circles, lines, and symbols", distractors: ["Squares and triangles only", "Letters and numbers", "Animal shapes only"] }
+            ],
+
             verbBank: [
                 { base: 'go', past: 'went', ing: 'going', pastParticiple: 'gone', object: 'to the store' },
                 { base: 'eat', past: 'ate', ing: 'eating', pastParticiple: 'eaten', object: 'a large pizza' },
@@ -693,8 +758,41 @@
                 return { q, a: shuffledAnswers, c: shuffledAnswers.indexOf(correctAnswer) };
             },
 
+            // Literary Terms Question
+            createLiteraryTermQuestion() {
+                const item = this.getRandom(this.literaryTerms);
+                const q = `A ${item.definition}`;
+                const correctAnswer = item.term;
+
+                let answers = [correctAnswer, ...item.distractors].slice(0, 4);
+                const shuffledAnswers = this.shuffle(answers);
+                return { q, a: shuffledAnswers, c: shuffledAnswers.indexOf(correctAnswer) };
+            },
+
+            // King Tut Question
+            createKingTutQuestion() {
+                const item = this.getRandom(this.kingTutFacts);
+                const q = item.q;
+                const correctAnswer = item.correct;
+
+                let answers = [correctAnswer, ...item.distractors].slice(0, 4);
+                const shuffledAnswers = this.shuffle(answers);
+                return { q, a: shuffledAnswers, c: shuffledAnswers.indexOf(correctAnswer) };
+            },
+
+            // Aboriginal Art Question
+            createAboriginalArtQuestion() {
+                const item = this.getRandom(this.aboriginalArtFacts);
+                const q = item.q;
+                const correctAnswer = item.correct;
+
+                let answers = [correctAnswer, ...item.distractors].slice(0, 4);
+                const shuffledAnswers = this.shuffle(answers);
+                return { q, a: shuffledAnswers, c: shuffledAnswers.indexOf(correctAnswer) };
+            },
+
             generate() {
-                // Randomly select one of the EIGHT question types
+                // Randomly select one of the question types
                 const questionTypes = [
                     this.createPastSimpleFill,
                     this.createPastContinuousFill,
@@ -703,7 +801,10 @@
                     this.createModalVerbFill,
                     this.createPrepositionFill,
                     this.createPassiveVoiceFill,
-                    this.createConditionalFill
+                    this.createConditionalFill,
+                    this.createLiteraryTermQuestion,
+                    this.createKingTutQuestion,
+                    this.createAboriginalArtQuestion
                 ];
                 const randomType = this.getRandom(questionTypes);
                 return randomType.call(this);
